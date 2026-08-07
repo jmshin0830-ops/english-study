@@ -333,8 +333,12 @@ var EBB_COLORS=['d1','d3','d7','d30'];
 // ── DB ──
 var DB={
   studiedChapters:{}, // {chapterId: {studiedDate, nextReviews:[date1,date3,date7,date30], reviewsDone:[f,f,f,f]}}
-  xp:0,streak:0,lastStudy:''
+  xp:0,streak:0,lastStudy:'',
+  customChapters:[] // 사용자가 직접 추가한 대화: {id,title,en_title,dlg:[{s,e}],custom:true}
 };
+// ── CHAPTER HELPERS (기본 26강 + 내가 추가한 대화 합치기) ──
+function allChapters(){return CHAPTERS.concat(DB.customChapters||[]);}
+function getCh(id){var a=allChapters();for(var i=0;i<a.length;i++)if(a[i].id===id)return a[i];return null;}
 var CLIENT_ID=window.GOOGLE_CLIENT_ID||'683820382727-0d15m80j5raqi4gpee5hsrsh9tn3nl8l.apps.googleusercontent.com';
 var SCOPES='https://www.googleapis.com/auth/drive.file';
 var gTok=null,fId=null,dSt='of';
@@ -343,7 +347,7 @@ var addD=function(d,n){var dt=new Date(d);dt.setDate(dt.getDate()+n);return dt.t
 
 // ── PERSIST ──
 function saveLoc(){try{localStorage.setItem('esl_v3',JSON.stringify(DB));}catch(e){}}
-function loadLoc(){try{var s=localStorage.getItem('esl_v3');if(s){var d=JSON.parse(s);if(d.studiedChapters)DB.studiedChapters=d.studiedChapters;if(d.xp)DB.xp=d.xp;if(d.streak)DB.streak=d.streak;if(d.lastStudy)DB.lastStudy=d.lastStudy;}}catch(e){}}
+function loadLoc(){try{var s=localStorage.getItem('esl_v3');if(s){var d=JSON.parse(s);if(d.studiedChapters)DB.studiedChapters=d.studiedChapters;if(d.xp)DB.xp=d.xp;if(d.streak)DB.streak=d.streak;if(d.lastStudy)DB.lastStudy=d.lastStudy;if(d.customChapters)DB.customChapters=d.customChapters;}}catch(e){}}
 
 // ── GOOGLE DRIVE ──
 function signIn(){
@@ -359,7 +363,7 @@ async function dLoad(){
   try{
     var r=await dReq('GET',"https://www.googleapis.com/drive/v3/files?q=name%3D'english_study_v3.json'%20and%20trashed%3Dfalse&fields=files(id)");
     var d=await r.json();
-    if(d.files&&d.files.length>0){fId=d.files[0].id;var r2=await dReq('GET','https://www.googleapis.com/drive/v3/files/'+fId+'?alt=media');var data=await r2.json();if(data.studiedChapters)DB.studiedChapters=data.studiedChapters;if(data.xp)DB.xp=data.xp;if(data.streak)DB.streak=data.streak;if(data.lastStudy)DB.lastStudy=data.lastStudy;}
+    if(d.files&&d.files.length>0){fId=d.files[0].id;var r2=await dReq('GET','https://www.googleapis.com/drive/v3/files/'+fId+'?alt=media');var data=await r2.json();if(data.studiedChapters)DB.studiedChapters=data.studiedChapters;if(data.xp)DB.xp=data.xp;if(data.streak)DB.streak=data.streak;if(data.lastStudy)DB.lastStudy=data.lastStudy;if(data.customChapters)DB.customChapters=data.customChapters;}
     dSt='ok';
   }catch(e){dSt='er';}
   rdBar();rend();
@@ -410,6 +414,58 @@ function saveMissedLines(chId,lines){
 }
 
 function updStr(){var t=td();if(DB.lastStudy===t)return;if(DB.lastStudy===addD(t,-1))DB.streak++;else if(DB.lastStudy!==t)DB.streak=1;DB.lastStudy=t;}
+
+// ── CUSTOM DIALOGUES (사용자가 직접 추가) ──
+// eslfast.com처럼 "A: ..." / "B: ..." 형식으로 붙여넣으면 자동으로 문장을 나눠줌.
+// A:/B: 표시가 없으면 한 줄씩 번갈아가며 A,B로 자동 배정.
+function parseDlg(text){
+  var raw=String(text||'').split(/\r?\n/).map(function(l){return l.trim();}).filter(Boolean);
+  var out=[],toggle='A';
+  raw.forEach(function(l){
+    var m=l.match(/^([AB])\s*[:.\-–)]\s*(.+)$/i);
+    if(m){
+      var spk=m[1].toUpperCase();
+      out.push({s:spk,e:m[2].trim()});
+      toggle=spk==='A'?'B':'A';
+    } else {
+      out.push({s:toggle,e:l});
+      toggle=toggle==='A'?'B':'A';
+    }
+  });
+  return out;
+}
+function previewAdd(){
+  var raw=document.getElementById('addRaw').value;
+  var dlg=parseDlg(raw);
+  var box=document.getElementById('addPreview');
+  if(!box)return;
+  if(dlg.length===0){box.innerHTML='<div style="font-size:12px;color:var(--text3)">대화 내용을 붙여넣으면 여기에 미리보기가 나와요.</div>';return;}
+  var h='<div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:6px">미리보기 · '+dlg.length+'문장</div>';
+  dlg.forEach(function(l){
+    h+='<div style="display:flex;gap:6px;padding:3px 0"><span style="font-size:12px;font-weight:600;min-width:16px;color:'+(l.s==='A'?'var(--b)':'var(--y)')+'">'+l.s+'</span><span style="font-size:13px">'+esc(l.e)+'</span></div>';
+  });
+  box.innerHTML=h;
+}
+function addCustomChapter(){
+  var titleKo=document.getElementById('addTitleKo').value.trim();
+  var titleEn=document.getElementById('addTitleEn').value.trim();
+  var raw=document.getElementById('addRaw').value;
+  var dlg=parseDlg(raw);
+  if(!titleKo){alert('대화 제목을 입력해주세요.');return;}
+  if(dlg.length<2){alert('대화 문장이 2개 이상 필요해요. 텍스트를 확인해주세요.');return;}
+  DB.customChapters=DB.customChapters||[];
+  DB.customChapters.push({id:Date.now(),title:titleKo,en_title:titleEn||titleKo,dlg:dlg,custom:true});
+  sched();
+  G.showAdd=false;
+  rend();
+}
+function deleteCustomChapter(id){
+  if(!confirm('이 대화를 삭제할까요? (학습 기록도 함께 삭제돼요)'))return;
+  DB.customChapters=(DB.customChapters||[]).filter(function(c){return c.id!==id;});
+  delete DB.studiedChapters[id];
+  sched();
+  rend();
+}
 
 // ── NAVIGATION ──
 var cur='t';
@@ -464,7 +520,9 @@ var G={
   revConvWait:false,revConvRec:false,revConvDone:false,
   revConvCorrect:0,revConvTotal:0,
   isRec:false,
-  revShowDone:false
+  revShowDone:false,
+  // Add-your-own-dialogue screen
+  showAdd:false
 };
 
 function sim(a,b){
@@ -497,12 +555,15 @@ function runLine(isReview){
   var idx=isReview?G.revConvIdx:G.convIdx;
   var role=isReview?G.revConvRole:G.convRole;
   if(idx>=lines.length){endConv(isReview);return;}
-  if(isReview)G.revConvIdx=idx;else G.convIdx=idx;
   rend();
   var line=lines[idx];
   if(line.s===getAIRole(role)){
     line.status='ai-cur';rend();
-    spk(line.e,spd,function(){line.status='dn';runLine(isReview);});
+    spk(line.e,spd,function(){
+      line.status='dn';
+      if(isReview)G.revConvIdx++;else G.convIdx++;
+      runLine(isReview);
+    });
   } else {
     line.status='me-cur';
     if(isReview)G.revConvWait=true;else G.convWaitUser=true;
@@ -518,8 +579,9 @@ function handleUserLine(txt,isReview){
   lines[idx].userSaid=txt;lines[idx].fix=ok?null:lines[idx].e;
   if(isReview){G.revConvWait=false;G.revConvCorrect+=ok?1:0;G.revConvTotal++;}
   else{G.convWaitUser=false;G.convCorrect+=ok?1:0;G.convTotal++;}
-  if(!ok)spk(lines[idx].e,spd,function(){setTimeout(function(){runLine(isReview);},200);});
-  else{DB.xp+=5;setTimeout(function(){runLine(isReview);},200);}
+  var advance=function(){if(isReview)G.revConvIdx++;else G.convIdx++;runLine(isReview);};
+  if(!ok)spk(lines[idx].e,spd,function(){setTimeout(advance,200);});
+  else{DB.xp+=5;setTimeout(advance,200);}
   rend();
 }
 
@@ -531,6 +593,7 @@ function advanceReviewLine(){
   line.status='dn';line.userSaid=null;line.fix=null;
   G.revConvWait=false;G.revConvCorrect+=1;G.revConvTotal++;
   DB.xp+=5;
+  G.revConvIdx++;
   setTimeout(function(){runLine(true);},150);
   rend();
 }
@@ -621,14 +684,14 @@ function rT(){
   h+='<div><div style="font-size:20px;font-weight:700">오늘의 학습</div><div style="font-size:13px;color:var(--text2)">🔥 '+DB.streak+'일 연속</div></div>';
   h+='<div style="display:inline-flex;align-items:center;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:600;background:var(--acc);color:var(--act)">⚡ '+DB.xp+' XP</div></div>';
   h+='<div style="margin-bottom:14px"><div class="pbar"><div class="pfill" style="width:'+xpPct+'%"></div></div>';
-  h+='<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2)"><span>진행 '+studiedCount+'/'+CHAPTERS.length+'강</span><span>+'+(100-xpPct)+' XP 다음 레벨</span></div></div>';
+  h+='<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2)"><span>진행 '+studiedCount+'/'+allChapters().length+'강</span><span>+'+(100-xpPct)+' XP 다음 레벨</span></div></div>';
 
   // Review due
   if(due.length>0){
     h+='<div class="ra"><div style="font-size:14px;font-weight:700;color:var(--y);margin-bottom:6px">⏰ 에빙하우스 복습 알림 '+due.length+'개</div>';
     h+='<div style="font-size:12px;color:var(--y);margin-bottom:10px">잊어버리기 전에 지금 복습하세요!</div>';
     due.slice(0,3).forEach(function(item){
-      var ch=CHAPTERS[item.chId];
+      var ch=getCh(item.chId);
       h+='<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:0.5px solid var(--ybr)">';
       h+='<span class="ebb-badge '+EBB_COLORS[item.reviewIdx]+'">'+EBB_LABELS[item.reviewIdx]+'</span>';
       h+='<span style="font-size:13px;flex:1">'+ch.title+'</span></div>';
@@ -663,13 +726,14 @@ function rL(){
     h+='<div style="font-size:20px;font-weight:700;margin-bottom:4px">강의 목록</div>';
     h+='<div style="font-size:13px;color:var(--text2);margin-bottom:14px">강의를 선택해서 시작하세요</div>';
     h+=dBarH();
-    CHAPTERS.forEach(function(ch){
+    h+='<button class="btn pr wr" style="margin-bottom:12px" onclick="go(\'e\');G.showAdd=true;rend()">✏️ 내가 직접 대화 추가하기</button>';
+    allChapters().forEach(function(ch){
       var done=DB.studiedChapters[ch.id];
       var cls='li'+(done?' dn':'');
       h+='<div class="'+cls+'" onclick="G.studyChId='+ch.id+';G.studyStep=1;G.lineIdx=0;G.lf=false;G.convRole=null;G.convStarted=false;G.convDone=false;G.lastLineIdx=-1;G.autoPlayed=false;rend()" role="button">';
-      h+='<div style="font-size:24px;flex-shrink:0;width:36px;text-align:center">'+(done?'✅':'📖')+'</div>';
+      h+='<div style="font-size:24px;flex-shrink:0;width:36px;text-align:center">'+(done?'✅':ch.custom?'✏️':'📖')+'</div>';
       h+='<div style="flex:1"><div style="font-size:14px;font-weight:600;margin-bottom:2px">'+esc(ch.title)+'</div>';
-      h+='<div style="font-size:12px;color:var(--text2)">'+esc(ch.en_title)+' · '+ch.dlg.length+'문장</div>';
+      h+='<div style="font-size:12px;color:var(--text2)">'+esc(ch.en_title)+' · '+ch.dlg.length+'문장'+(ch.custom?' · 직접 추가':'')+'</div>';
       if(done){
         var entry=DB.studiedChapters[ch.id];
         var doneCount=entry.reviewsDone.filter(Boolean).length;
@@ -683,7 +747,7 @@ function rL(){
     return;
   }
 
-  var ch=CHAPTERS[G.studyChId];
+  var ch=getCh(G.studyChId);
   var lines=ch.dlg;
 
   h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">';
@@ -772,7 +836,7 @@ function rL(){
         h+='<span style="font-size:13px">'+esc(l.e)+(me?' <span style="color:var(--text3);font-size:11px">(내 차례)</span>':'')+'</span></div>';
       });
       h+='</div>';
-      h+='<button class="btn pr wr" '+(G.convRole?'onclick="startConv(G.convRole,CHAPTERS[G.studyChId].dlg,false)"':'disabled')+'>▶ 롤플레이 시작</button>';
+      h+='<button class="btn pr wr" '+(G.convRole?'onclick="startConv(G.convRole,getCh(G.studyChId).dlg,false)"':'disabled')+'>▶ 롤플레이 시작</button>';
     } else if(G.convDone){
       var ev=G.convEval;
       if(ev&&ev.ready){
@@ -820,7 +884,7 @@ function rR(){
     } else {
       h+='<div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:10px">오늘 복습할 강의 '+due.length+'개</div>';
       due.forEach(function(item){
-        var ch=CHAPTERS[item.chId];
+        var ch=getCh(item.chId);
         h+='<div class="card" style="cursor:pointer" onclick="G.reviewItem='+JSON.stringify(item)+';G.revStep=1;G.revRevealed=false;G.revChecked=[];rend()">';
         h+='<div style="display:flex;align-items:center;gap:10px">';
         h+='<span class="ebb-badge '+EBB_COLORS[item.reviewIdx]+'">'+EBB_LABELS[item.reviewIdx]+'</span>';
@@ -836,12 +900,13 @@ function rR(){
     if(studied.length>0){
       var activeIds=[],doneIds=[];
       studied.forEach(function(cid){
+        if(!getCh(parseInt(cid)))return;
         var allDone=DB.studiedChapters[cid].reviewsDone.every(Boolean);
         (allDone?doneIds:activeIds).push(cid);
       });
       h+='<div style="font-size:13px;font-weight:600;color:var(--text2);margin:16px 0 10px;text-transform:uppercase;letter-spacing:.05em">학습한 강의 현황</div>';
       var renderRow=function(cid){
-        var ch=CHAPTERS[parseInt(cid)];
+        var ch=getCh(parseInt(cid));
         var entry=DB.studiedChapters[cid];
         var r='<div class="card" style="margin-bottom:6px">';
         r+='<div style="font-size:13px;font-weight:600;margin-bottom:6px">'+esc(ch.title)+'</div>';
@@ -868,7 +933,7 @@ function rR(){
   }
 
   // Review steps
-  var ch=CHAPTERS[G.reviewItem.chId];
+  var ch=getCh(G.reviewItem.chId);
   var lines=ch.dlg;
   var reviewIdx=G.reviewItem.reviewIdx;
 
@@ -955,7 +1020,7 @@ function rR(){
         h+='<div style="font-size:14px;font-weight:600">역할 '+r+'</div></div>';
       });
       h+='</div>';
-      h+='<button class="btn pr wr" '+(G.revConvRole?'onclick="startConv(G.revConvRole,CHAPTERS[G.reviewItem.chId].dlg,true)"':'disabled')+'>▶ 롤플레이 시작</button>';
+      h+='<button class="btn pr wr" '+(G.revConvRole?'onclick="startConv(G.revConvRole,getCh(G.reviewItem.chId).dlg,true)"':'disabled')+'>▶ 롤플레이 시작</button>';
     } else if(G.revConvDone){
       h+='<div class="card gr" style="text-align:center">';
       h+='<div style="font-size:30px;margin-bottom:8px">🎉</div>';
@@ -984,8 +1049,19 @@ function rR(){
 
 // ── SETTINGS ──
 function rE(){
+  if(G.showAdd){rAdd();return;}
   var h='<div style="font-size:20px;font-weight:700;margin-bottom:16px">설정</div>';
   h+=dBarH();
+  if((DB.customChapters||[]).length>0){
+    h+='<div style="font-size:13px;font-weight:600;color:var(--text2);margin:0 0 10px;text-transform:uppercase;letter-spacing:.05em">내가 추가한 대화</div>';
+    h+='<div style="font-size:12px;color:var(--text2);margin-bottom:8px">새 대화는 학습 탭 맨 위 "내가 직접 대화 추가하기"에서 추가할 수 있어요.</div>';
+    DB.customChapters.forEach(function(ch){
+      h+='<div class="card" style="display:flex;align-items:center;gap:10px">';
+      h+='<div style="flex:1"><div style="font-size:13px;font-weight:600">'+esc(ch.title)+'</div><div style="font-size:12px;color:var(--text2);margin-top:2px">'+esc(ch.en_title)+' · '+ch.dlg.length+'문장</div></div>';
+      h+='<button class="btn" style="color:var(--r);flex-shrink:0" onclick="deleteCustomChapter('+ch.id+')">삭제</button>';
+      h+='</div>';
+    });
+  }
   h+='<div style="font-size:13px;font-weight:600;color:var(--text2);margin:0 0 10px;text-transform:uppercase;letter-spacing:.05em">Google Drive</div>';
   h+='<div class="card"><div style="font-size:13px;color:var(--text2);margin-bottom:8px">두 기기에서 같은 Google 계정으로 로그인하면 자동 동기화돼요.</div><button class="btn wr" onclick="dLoad()">지금 동기화</button></div>';
   h+='<div style="font-size:13px;font-weight:600;color:var(--text2);margin:16px 0 10px;text-transform:uppercase;letter-spacing:.05em">에빙하우스 복습 주기</div>';
@@ -1003,6 +1079,37 @@ function rE(){
   h+='<div style="font-size:13px;font-weight:600;color:var(--text2);margin:16px 0 10px;text-transform:uppercase;letter-spacing:.05em">데이터</div>';
   h+='<div class="card"><div style="font-size:13px;color:var(--text2);margin-bottom:8px">학습한 강의: '+Object.keys(DB.studiedChapters).length+'개 · XP: '+DB.xp+' · '+DB.streak+'일 연속</div>';
   h+='<button class="btn wr" style="color:var(--r)" onclick="if(confirm(\'모든 데이터를 초기화할까요?\'))resetAll()">데이터 초기화</button></div>';
+  document.getElementById('sec').innerHTML=h;
+}
+
+// ── ADD YOUR OWN DIALOGUE ──
+function rAdd(){
+  var h='';
+  h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">';
+  h+='<div style="font-size:20px;font-weight:700">✏️ 대화 직접 추가</div>';
+  h+='<button class="btn" onclick="G.showAdd=false;rend()">← 취소</button></div>';
+
+  h+='<div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--rads);padding:10px 12px;font-size:12px;color:var(--text2);line-height:1.7;margin-bottom:14px">';
+  h+='<strong style="color:var(--text)">사용법</strong><br>';
+  h+='① <a href="https://www.eslfast.com/easydialogs/" target="_blank" rel="noopener" style="color:var(--b)">eslfast.com</a> 등에서 마음에 드는 대화를 복사<br>';
+  h+='② 아래 대화 내용 칸에 붙여넣기 (한 줄에 한 문장)<br>';
+  h+='③ "A: " / "B: " 로 시작하면 자동 인식, 없으면 한 줄씩 번갈아 A·B로 나눠줘요<br>';
+  h+='④ 미리보기로 확인하고 저장!';
+  h+='</div>';
+
+  h+='<div class="card">';
+  h+='<div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px">대화 제목 (한글) *</div>';
+  h+='<input class="tinp" id="addTitleKo" placeholder="예: 27강 — 날씨에 대해 이야기할 때" style="margin-bottom:12px">';
+  h+='<div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px">영어 제목 (선택)</div>';
+  h+='<input class="tinp" id="addTitleEn" placeholder="예: How is the weather?" style="margin-bottom:12px">';
+  h+='<div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px">대화 내용 (영어, 한 줄에 한 문장) *</div>';
+  h+='<textarea class="tinp" id="addRaw" rows="10" style="resize:vertical;font-family:inherit;line-height:1.6" placeholder="A: How is the weather today?\nB: It is sunny and warm.\nA: Do you like sunny days?\nB: Yes, I love them." oninput="previewAdd()"></textarea>';
+  h+='</div>';
+
+  h+='<div class="card" id="addPreview" style="min-height:40px"><div style="font-size:12px;color:var(--text3)">대화 내용을 붙여넣으면 여기에 미리보기가 나와요.</div></div>';
+
+  h+='<button class="btn pr wr" onclick="addCustomChapter()">저장하기</button>';
+
   document.getElementById('sec').innerHTML=h;
 }
 
