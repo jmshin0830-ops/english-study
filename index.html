@@ -598,6 +598,19 @@ function advanceReviewLine(){
   rend();
 }
 
+// Study roleplay: same flow as review — user speaks their own line out loud
+// (no STT grading). Pressing the button just advances so the AI's line plays via TTS.
+function advanceStudyLine(){
+  var idx=G.convIdx;
+  var line=G.convLines[idx];
+  line.status='dn';line.userSaid=null;line.fix=null;
+  G.convWaitUser=false;G.convCorrect+=1;G.convTotal++;
+  DB.xp+=5;
+  G.convIdx++;
+  setTimeout(function(){runLine(false);},150);
+  rend();
+}
+
 function endConv(isReview){
   if(isReview){
     G.revConvDone=true;G.revConvWait=false;
@@ -648,19 +661,11 @@ function convUI(isReview){
     h+='</div></div>';
   });
   h+='</div>';
-  if(wait&&isReview){
+  if(wait){
     h+='<div style="border:1px solid var(--border);border-radius:var(--rad);padding:14px;text-align:center;margin-bottom:10px">';
     h+='<div style="font-size:14px;font-weight:600;margin-bottom:4px">내 차례 💬</div>';
     h+='<div style="font-size:12px;color:var(--text2);margin-bottom:12px">이 문장을 소리내어 말해보세요</div>';
-    h+='<button class="btn pr wr" onclick="advanceReviewLine()">✅ 말했어요 → 상대방 음성 듣기</button>';
-    h+='</div>';
-  } else if(wait){
-    h+='<div style="border:1px solid var(--border);border-radius:var(--rad);padding:14px;text-align:center;margin-bottom:10px">';
-    h+='<div style="font-size:14px;font-weight:600;margin-bottom:10px">내 차례 💬</div>';
-    var recVar=isReview?'G.revConvRec':'G.convRec';
-    h+='<button class="mbtn'+(rec?' re':'')+'" style="margin:0 auto 10px;display:flex" onclick="if(!'+recVar+'){'+recVar+'=true;rend();startMic(function(t){'+recVar+'=false;handleUserLine(t,'+isReview+');});}else{SR&&SR.stop();'+recVar+'=false;rend();}">'+(rec?'⏹':'🎤')+'</button>';
-    h+='<div style="display:flex;gap:7px"><input class="tinp" id="cvi'+(isReview?'r':'')+'" placeholder="또는 텍스트로 입력..." style="flex:1">';
-    h+='<button class="btn pr" onclick="var v=document.getElementById(\'cvi'+(isReview?'r':'')+'\').value.trim();if(v)handleUserLine(v,'+isReview+')">전송</button></div>';
+    h+='<button class="btn pr wr" onclick="'+(isReview?'advanceReviewLine()':'advanceStudyLine()')+'">✅ 말했어요 → 상대방 음성 듣기</button>';
     h+='</div>';
   }
   return h;
