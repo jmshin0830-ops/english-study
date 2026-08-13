@@ -111,6 +111,22 @@ nav{position:fixed;bottom:0;left:0;right:0;background:var(--bg);border-top:1px s
 .ebb-badge.d3{background:var(--bbg);color:var(--b);}
 .ebb-badge.d7{background:#fdf4ff;color:#9333ea;}
 .ebb-badge.d30{background:var(--gbg);color:var(--g);}
+/* Content type tabs — english-study-update-2026-08 */
+.section-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--rad);padding:5px;margin-bottom:14px;}
+.section-tab{min-height:42px;border:0;border-radius:var(--rads);background:transparent;color:var(--text2);font-size:13px;font-weight:650;font-family:inherit;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;}
+.section-tab.on{background:var(--acc);color:var(--act);box-shadow:0 1px 3px rgba(0,0,0,.14);}
+.section-count{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--bg3);color:var(--text2);font-size:10px;font-weight:700;}
+.section-tab.on .section-count{background:rgba(255,255,255,.2);color:inherit;}
+.book-empty{border:1px dashed var(--border);border-radius:var(--rad);padding:30px 18px;text-align:center;background:var(--bg2);}
+.book-empty .be-ic{font-size:34px;margin-bottom:8px;}
+.book-empty .be-title{font-size:15px;font-weight:700;margin-bottom:5px;}
+.book-empty .be-sub{font-size:12px;color:var(--text2);line-height:1.65;}
+.book-word-card{padding:14px 15px;}
+.book-word-head{display:flex;align-items:flex-start;gap:10px;margin-bottom:8px;}
+.book-word-en{font-size:19px;font-weight:700;line-height:1.25;}
+.book-word-ko{font-size:13px;color:var(--text2);margin-top:2px;}
+.book-example-ko{font-size:13px;color:var(--text2);line-height:1.55;margin-bottom:4px;}
+.book-example-en{font-size:15px;line-height:1.55;margin-bottom:8px;}
 </style>
 </head>
 <body>
@@ -334,7 +350,9 @@ var EBB_COLORS=['d1','d3','d7','d30'];
 var DB={
   studiedChapters:{}, // {chapterId: {studiedDate, nextReviews:[date1,date3,date7,date30], reviewsDone:[f,f,f,f]}}
   xp:0,streak:0,lastStudy:'',
-  customChapters:[] // 사용자가 직접 추가한 대화: {id,title,en_title,dlg:[{s,e}],custom:true}
+  customChapters:[], // 사용자가 직접 추가한 대화: {id,title,en_title,dlg:[{s,e}],custom:true}
+  bookWords:[],      // PDF/책에서 저장한 단어 카드가 들어갈 자리
+  speechRate:0.75    // 문장 읽기 속도 (0.5x~2x)
 };
 // ── CHAPTER HELPERS (기본 26강 + 내가 추가한 대화 합치기) ──
 function allChapters(){return CHAPTERS.concat(DB.customChapters||[]);}
@@ -347,7 +365,20 @@ var addD=function(d,n){var dt=new Date(d);dt.setDate(dt.getDate()+n);return dt.t
 
 // ── PERSIST ──
 function saveLoc(){try{localStorage.setItem('esl_v3',JSON.stringify(DB));}catch(e){}}
-function loadLoc(){try{var s=localStorage.getItem('esl_v3');if(s){var d=JSON.parse(s);if(d.studiedChapters)DB.studiedChapters=d.studiedChapters;if(d.xp)DB.xp=d.xp;if(d.streak)DB.streak=d.streak;if(d.lastStudy)DB.lastStudy=d.lastStudy;if(d.customChapters)DB.customChapters=d.customChapters;}}catch(e){}}
+function applyLoadedData(d){
+  if(!d)return;
+  if(d.studiedChapters)DB.studiedChapters=d.studiedChapters;
+  if(typeof d.xp==='number')DB.xp=d.xp;
+  if(typeof d.streak==='number')DB.streak=d.streak;
+  if(typeof d.lastStudy==='string')DB.lastStudy=d.lastStudy;
+  if(Array.isArray(d.customChapters))DB.customChapters=d.customChapters;
+  if(Array.isArray(d.bookWords))DB.bookWords=d.bookWords;
+  if(typeof d.speechRate==='number'){
+    DB.speechRate=Math.max(.5,Math.min(2,d.speechRate));
+    spd=DB.speechRate;
+  }
+}
+function loadLoc(){try{var s=localStorage.getItem('esl_v3');if(s)applyLoadedData(JSON.parse(s));}catch(e){}}
 
 // ── GOOGLE DRIVE ──
 function signIn(){
@@ -363,7 +394,12 @@ async function dLoad(){
   try{
     var r=await dReq('GET',"https://www.googleapis.com/drive/v3/files?q=name%3D'english_study_v3.json'%20and%20trashed%3Dfalse&fields=files(id)");
     var d=await r.json();
-    if(d.files&&d.files.length>0){fId=d.files[0].id;var r2=await dReq('GET','https://www.googleapis.com/drive/v3/files/'+fId+'?alt=media');var data=await r2.json();if(data.studiedChapters)DB.studiedChapters=data.studiedChapters;if(data.xp)DB.xp=data.xp;if(data.streak)DB.streak=data.streak;if(data.lastStudy)DB.lastStudy=data.lastStudy;if(data.customChapters)DB.customChapters=data.customChapters;}
+    if(d.files&&d.files.length>0){
+      fId=d.files[0].id;
+      var r2=await dReq('GET','https://www.googleapis.com/drive/v3/files/'+fId+'?alt=media');
+      var data=await r2.json();
+      applyLoadedData(data);
+    }
     dSt='ok';
   }catch(e){dSt='er';}
   rdBar();rend();
@@ -484,15 +520,62 @@ function initApp(){
 }
 
 // ── AUDIO ──
-var syn=window.speechSynthesis,SR=null,lAct=false,lN=0,spd=0.75;
+var syn=window.speechSynthesis,SR=null,lAct=false,lN=0,spd=DB.speechRate||0.75;
+var loopText='',loopToken=0,loopTimer=null;
 try{var RC=window.SpeechRecognition||window.webkitSpeechRecognition;if(RC){SR=new RC();SR.lang='en-US';SR.continuous=false;SR.interimResults=false;}}catch(e){}
-function spk(t,r,cb){syn.cancel();var u=new SpeechSynthesisUtterance(t);u.lang='en-US';u.rate=r||1;u.pitch=1;u.onend=function(){if(cb)setTimeout(cb,500);};syn.speak(u);}
+function makeUtterance(t,r){
+  var u=new SpeechSynthesisUtterance(t);
+  u.lang='en-US';u.rate=r||1;u.pitch=1;
+  return u;
+}
+function spk(t,r,cb){
+  stopLoop(false);
+  var u=makeUtterance(t,r);
+  u.onend=function(){if(cb)setTimeout(cb,500);};
+  u.onerror=function(e){
+    if(e&&(e.error==='canceled'||e.error==='interrupted'))return;
+    if(cb)setTimeout(cb,500);
+  };
+  if(syn.paused)syn.resume();
+  syn.speak(u);
+}
 function sLoop(t){
-  lAct=true;lN=0;G.pl=true;G.rn=0;rend();
-  function lp(){if(!lAct){G.pl=false;G.rn=0;rend();return;}lN++;G.rn=lN;rend();spk(t,spd,lp);}
+  if(!t)return;
+  stopLoop(false);
+  lAct=true;lN=0;loopText=t;loopToken++;
+  var token=loopToken;
+  G.pl=true;G.rn=0;rend();
+  function lp(){
+    if(!lAct||token!==loopToken)return;
+    lN++;G.rn=lN;rend();
+    var u=makeUtterance(loopText,spd);
+    u.onend=function(){
+      if(!lAct||token!==loopToken)return;
+      loopTimer=setTimeout(lp,500);
+    };
+    u.onerror=function(e){
+      if(e&&(e.error==='canceled'||e.error==='interrupted'))return;
+      if(token===loopToken){stopLoop(false);rend();}
+    };
+    if(syn.paused)syn.resume();
+    syn.speak(u);
+  }
   lp();
 }
-function stopLoop(){lAct=false;syn.cancel();G.pl=false;G.rn=0;}
+function stopLoop(redraw){
+  lAct=false;loopToken++;loopText='';
+  if(loopTimer){clearTimeout(loopTimer);loopTimer=null;}
+  syn.cancel();G.pl=false;G.rn=0;
+  if(redraw)rend();
+}
+function setSpeed(v){
+  var next=parseFloat(v);
+  if(!isFinite(next))return;
+  next=Math.max(.5,Math.min(2,next));
+  spd=next;DB.speechRate=next;sched();
+  if(lAct&&loopText){var t=loopText;sLoop(t);}
+  else rend();
+}
 function startMic(cb){
   if(!SR){alert('마이크는 Chrome에서만 지원해요.');return;}
   SR.onresult=function(e){var t='';for(var i=e.resultIndex;i<e.results.length;i++)if(e.results[i].isFinal)t+=e.results[i][0].transcript;if(t&&cb)cb(t.trim());};
@@ -503,6 +586,8 @@ function startMic(cb){
 
 // ── GAME STATE ──
 var G={
+  learnSection:'dialogue',
+  reviewSection:'dialogue',
   // Study mode
   studyChId:null,studyStep:1, // step1=shadowing, step2=roleplay
   lineIdx:0,lf:false,pl:false,rn:0,
@@ -633,15 +718,77 @@ function dBarH(){
   return '<div class="dbar"><div class="dd '+(dSt==='ok'?'ok':'sy')+'"></div><span style="font-size:12px;color:var(--text2)">'+lb+'</span><button style="margin-left:auto;padding:3px 10px;font-size:11px;border:1px solid var(--border);border-radius:20px;background:none;cursor:pointer;color:var(--text2);font-family:inherit" onclick="dLoad()">동기화</button></div>';
 }
 
-function aBarH(t){
-  var SS=[{v:0.75,l:'느리게'},{v:1,l:'보통'},{v:1.25,l:'1.25x'},{v:1.5,l:'1.5x'},{v:2.0,l:'2x'}];
-  var safe=t.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-  var h='<div class="abar"><div class="abrow"><button class="pbtn'+(G.pl?' st':'')+'" onclick="'+(G.pl?'stopLoop();rend()':'sLoop(\''+safe+'\')')+'">'+(G.pl?'<div class="wav"><span></span><span></span><span></span><span></span></div>':'▶')+'</button><span style="font-size:12px;color:var(--text2);flex:1">'+(G.pl?G.rn+'회 재생 중 — ■ 정지':'▶ 무한반복 자동재생')+'</span></div>';
-  h+='<div class="spdr">';
-  SS.forEach(function(o){h+='<button class="sb2'+(spd===o.v?' on':'')+'" onclick="stopLoop();spd='+o.v+';rend()">'+o.l+'</button>';});
-  return h+'</div></div>';
+function fmtSpeed(v){
+  var n=Math.round(v*100)/100;
+  return String(n)+'x';
 }
-
+function speedButtonsH(){
+  var SS=[{v:0.5,l:'0.5x'},{v:0.75,l:'0.75x'},{v:1,l:'1x'},{v:1.25,l:'1.25x'},{v:1.5,l:'1.5x'},{v:2,l:'2x'}];
+  var h='<div class="spdr">';
+  SS.forEach(function(o){h+='<button class="sb2'+(spd===o.v?' on':'')+'" onclick="setSpeed('+o.v+')">'+o.l+'</button>';});
+  return h+'</div>';
+}
+function getBookWordsDue(){
+  var now=Date.now();
+  return (DB.bookWords||[]).filter(function(w){
+    var due=w&&(w.dueAt||w.nextReviewAt);
+    if(!due)return true;
+    var time=Date.parse(due);
+    return isNaN(time)||time<=now;
+  });
+}
+function contentTabsH(kind){
+  var current=kind==='learn'?G.learnSection:G.reviewSection;
+  var count=kind==='learn'?(DB.bookWords||[]).length:getBookWordsDue().length;
+  var label=kind==='learn'?'학습 유형':'복습 유형';
+  var h='<div class="section-tabs" role="tablist" aria-label="'+label+'">';
+  h+='<button class="section-tab'+(current==='dialogue'?' on':'')+'" role="tab" aria-selected="'+(current==='dialogue')+'" onclick="selectContent(\''+kind+'\',\'dialogue\')">💬 다이얼로그</button>';
+  h+='<button class="section-tab'+(current==='book'?' on':'')+'" role="tab" aria-selected="'+(current==='book')+'" onclick="selectContent(\''+kind+'\',\'book\')">📖 책 단어 <span class="section-count">'+count+'</span></button>';
+  return h+'</div>';
+}
+function selectContent(kind,section){
+  stopLoop(false);
+  if(kind==='learn')G.learnSection=section;
+  else G.reviewSection=section;
+  rend();
+}
+function bookWordsH(isReview){
+  var all=DB.bookWords||[];
+  var words=isReview?getBookWordsDue():all;
+  var h='<div style="display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:12px">';
+  h+='<div><div style="font-size:20px;font-weight:700">'+(isReview?'책 단어 복습':'책 단어 학습')+'</div>';
+  h+='<div style="font-size:13px;color:var(--text2);margin-top:3px">'+(isReview?'오늘 복습할 단어를 확인하세요':'PDF와 책에서 저장한 단어를 모아 학습합니다')+'</div></div>';
+  h+='<span class="section-count">'+words.length+'개</span></div>';
+  if(words.length===0){
+    var hasFuture=isReview&&all.length>0;
+    h+='<div class="book-empty"><div class="be-ic">'+(hasFuture?'✅':'📚')+'</div>';
+    h+='<div class="be-title">'+(hasFuture?'오늘 복습할 책 단어가 없어요':'저장된 책 단어가 없어요')+'</div>';
+    h+='<div class="be-sub">'+(hasFuture?'예정된 날짜가 되면 이곳에 자동으로 표시됩니다.':'다음 단계에서 PDF에서 체크한 단어가 이곳에 쌓이도록 연결합니다.<br>다이얼로그와 책 단어는 서로 섞이지 않고 별도로 관리됩니다.')+'</div></div>';
+    return h;
+  }
+  words.forEach(function(w){
+    var word=w.word||w.surface||w.lemma||'단어';
+    var meaning=w.meaningKo||w.meaning||w.ko||'뜻 미등록';
+    var exampleKo=w.exampleKo||w.sentenceKo||'';
+    var exampleEn=w.exampleEn||w.sentenceEn||w.sourceSentence||'';
+    h+='<div class="card book-word-card">';
+    h+='<div class="book-word-head"><div style="flex:1"><div class="book-word-en">'+esc(word)+'</div><div class="book-word-ko">'+esc(meaning)+'</div></div>';
+    if(isReview)h+='<span class="ebb-badge d1">복습</span>';
+    h+='</div>';
+    if(exampleKo)h+='<div class="book-example-ko">'+esc(exampleKo)+'</div>';
+    if(exampleEn){h+='<div class="book-example-en">'+esc(exampleEn)+'</div>';h+=aBarH(exampleEn);}
+    h+='</div>';
+  });
+  return h;
+}
+function aBarH(t){
+  var safe=t.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  var active=G.pl&&loopText===t;
+  var h='<div class="abar"><div class="abrow"><button class="pbtn'+(active?' st':'')+'" onclick="'+(active?'stopLoop(true)':'sLoop(\''+safe+'\')')+'">'+(active?'<div class="wav"><span></span><span></span><span></span><span></span></div>':'▶')+'</button>';
+  h+='<span style="font-size:12px;color:var(--text2);flex:1">'+(active?G.rn+'회 반복 중 · '+fmtSpeed(spd)+' · 누르면 정지':'▶ 한 번 누르면 정지할 때까지 무한 반복')+'</span></div>';
+  h+=speedButtonsH();
+  return h+'</div>';
+}
 function convUI(isReview){
   var lines=isReview?G.revConvLines:G.convLines;
   var idx=isReview?G.revConvIdx:G.convIdx;
@@ -702,7 +849,7 @@ function rT(){
       h+='<span style="font-size:13px;flex:1">'+ch.title+'</span></div>';
     });
     if(due.length>3)h+='<div style="font-size:12px;color:var(--y);padding-top:6px">+'+( due.length-3)+'개 더</div>';
-    h+='<button class="btn pr wr" style="margin-top:10px" onclick="G.reviewItem=getReviewsDue()[0];G.revStep=1;G.revRevealed=false;G.revChecked=[];go(\'r\')">지금 복습하기 →</button>';
+    h+='<button class="btn pr wr" style="margin-top:10px" onclick="G.reviewSection=\'dialogue\';G.reviewItem=getReviewsDue()[0];G.revStep=1;G.revRevealed=false;G.revChecked=[];go(\'r\')">지금 복습하기 →</button>';
     h+='</div>';
   } else {
     h+='<div class="card gr"><div style="font-size:22px;margin-bottom:6px">✅</div><div style="font-size:14px;font-weight:600;margin-bottom:4px">오늘 복습 완료!</div><div style="font-size:13px;color:var(--text2)">새 강의를 학습하거나 내일 다시 오세요.</div></div>';
@@ -725,10 +872,15 @@ function rT(){
 
 // ── LEARN ──
 function rL(){
-  var h='';
+  var h=contentTabsH('learn');
+  if(G.learnSection==='book'){
+    h+=bookWordsH(false);
+    document.getElementById('slc').innerHTML=h;
+    return;
+  }
   if(G.studyChId===null){
     // Chapter list
-    h+='<div style="font-size:20px;font-weight:700;margin-bottom:4px">강의 목록</div>';
+    h+='<div style="font-size:20px;font-weight:700;margin-bottom:4px">다이얼로그 강의</div>';
     h+='<div style="font-size:13px;color:var(--text2);margin-bottom:14px">강의를 선택해서 시작하세요</div>';
     h+=dBarH();
     h+='<button class="btn pr wr" style="margin-bottom:12px" onclick="go(\'e\');G.showAdd=true;rend()">✏️ 내가 직접 대화 추가하기</button>';
@@ -803,17 +955,13 @@ function rL(){
 
     h+='<div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--rads);padding:10px 12px;font-size:12px;color:var(--text2);line-height:1.7;margin-top:4px">';
     h+='<strong style="color:var(--text)">섀도잉 방법</strong><br>';
-    h+='① 카드 뜨면 자동재생 → 귀로 먼저 듣기<br>';
-    h+='② ▶ 무한반복 켜고 동시에 따라 말하기<br>';
-    h+='③ 느리게 → 보통 → 원속 순서로 속도 올리기<br>';
+    h+='① ▶를 한 번 누르면 정지할 때까지 무한 반복<br>';
+    h+='② 반복 음성을 들으며 동시에 따라 말하기<br>';
+    h+='③ 속도 버튼을 누르면 재생 중에도 즉시 변경<br>';
     h+='④ 12문장 전부 마치면 롤플레이로!';
     h+='</div>';
 
-    // Auto-play
-    if(G.lastLineIdx!==lineIdx){
-      G.lastLineIdx=lineIdx;G.autoPlayed=false;
-      setTimeout(function(){if(!G.pl&&!G.autoPlayed){G.autoPlayed=true;sLoop(cl.e);}},400);
-    }
+    // 재생은 사용자가 ▶ 버튼을 한 번 눌렀을 때만 시작됩니다.
   }
 
   // ── STEP 2: ROLEPLAY ──
@@ -874,11 +1022,16 @@ function rL(){
 
 // ── REVIEW ──
 function rR(){
-  var h='';
+  var h=contentTabsH('review');
+  if(G.reviewSection==='book'){
+    h+=bookWordsH(true);
+    document.getElementById('src').innerHTML=h;
+    return;
+  }
   var due=getReviewsDue();
 
   if(!G.reviewItem||G.revStep===0){
-    h+='<div style="font-size:20px;font-weight:700;margin-bottom:4px">복습</div>';
+    h+='<div style="font-size:20px;font-weight:700;margin-bottom:4px">다이얼로그 복습</div>';
     h+='<div style="font-size:13px;color:var(--text2);margin-bottom:14px">에빙하우스 망각곡선 기반 복습</div>';
     h+=dBarH();
 
@@ -1034,7 +1187,7 @@ function rR(){
       h+='<div style="display:flex;gap:8px;margin-top:10px">';
       h+='<button class="btn wr" onclick="stopLoop();G.reviewItem=null;G.revStep=0;rend()">복습 목록으로</button>';
       var nextDue=getReviewsDue();
-      if(nextDue.length>0){h+='<button class="btn pr wr" onclick="G.reviewItem=getReviewsDue()[0];G.revStep=1;G.revRevealed=false;G.revChecked=[];rend()">다음 복습 →</button>';}
+      if(nextDue.length>0){h+='<button class="btn pr wr" onclick="G.reviewSection=\'dialogue\';G.reviewItem=getReviewsDue()[0];G.revStep=1;G.revRevealed=false;G.revChecked=[];rend()">다음 복습 →</button>';}
       h+='</div>';
     } else {
       h+=convUI(true);
@@ -1069,6 +1222,8 @@ function rE(){
   }
   h+='<div style="font-size:13px;font-weight:600;color:var(--text2);margin:0 0 10px;text-transform:uppercase;letter-spacing:.05em">Google Drive</div>';
   h+='<div class="card"><div style="font-size:13px;color:var(--text2);margin-bottom:8px">두 기기에서 같은 Google 계정으로 로그인하면 자동 동기화돼요.</div><button class="btn wr" onclick="dLoad()">지금 동기화</button></div>';
+  h+='<div style="font-size:13px;font-weight:600;color:var(--text2);margin:16px 0 10px;text-transform:uppercase;letter-spacing:.05em">음성 재생 속도</div>';
+  h+='<div class="card"><div style="font-size:12px;color:var(--text2);margin-bottom:9px">현재 '+fmtSpeed(spd)+' · 반복 재생 중에 바꿔도 즉시 적용됩니다.</div>'+speedButtonsH()+'</div>';
   h+='<div style="font-size:13px;font-weight:600;color:var(--text2);margin:16px 0 10px;text-transform:uppercase;letter-spacing:.05em">에빙하우스 복습 주기</div>';
   h+='<div class="card"><div style="display:flex;gap:6px">';
   [{l:'학습일',c:'var(--acc)',tc:'var(--act)'},{l:'1일 후',c:'var(--ybg)',tc:'var(--y)'},{l:'3일 후',c:'var(--bbg)',tc:'var(--b)'},{l:'7일 후',c:'#fdf4ff',tc:'#9333ea'},{l:'30일 후',c:'var(--gbg)',tc:'var(--g)'}].forEach(function(s){
