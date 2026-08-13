@@ -11,6 +11,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>영어 학습 👩‍🚀</title>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.js"></script>
 <style>
 :root{--bg:#fff;--bg2:#f5f5f5;--bg3:#eee;--text:#111;--text2:#666;--text3:#999;--border:#e0e0e0;--acc:#000;--act:#fff;--g:#16a34a;--gbg:#f0fdf4;--gbr:#bbf7d0;--r:#dc2626;--rbg:#fef2f2;--rbr:#fecaca;--y:#d97706;--ybg:#fffbeb;--ybr:#fde68a;--b:#2563eb;--bbg:#eff6ff;--bbr:#bfdbfe;--rad:12px;--rads:8px;--st:env(safe-area-inset-top,0px);--sb:env(safe-area-inset-bottom,0px);}
 @media(prefers-color-scheme:dark){:root{--bg:#0a0a0a;--bg2:#1a1a1a;--bg3:#2a2a2a;--text:#f0f0f0;--text2:#aaa;--text3:#666;--border:#2a2a2a;--gbg:#052e16;--rbg:#450a0a;--ybg:#422006;--bbg:#172554;}}
@@ -352,6 +353,7 @@ var DB={
   xp:0,streak:0,lastStudy:'',
   customChapters:[], // 사용자가 직접 추가한 대화: {id,title,en_title,dlg:[{s,e}],custom:true}
   bookWords:[],      // PDF/책에서 저장한 단어 카드가 들어갈 자리
+  books:[],          // 업로드한 책: {id,title,sentences:[],savedAt}
   speechRate:0.75    // 문장 읽기 속도 (0.5x~2x)
 };
 // ── CHAPTER HELPERS (기본 26강 + 내가 추가한 대화 합치기) ──
@@ -373,6 +375,7 @@ function applyLoadedData(d){
   if(typeof d.lastStudy==='string')DB.lastStudy=d.lastStudy;
   if(Array.isArray(d.customChapters))DB.customChapters=d.customChapters;
   if(Array.isArray(d.bookWords))DB.bookWords=d.bookWords;
+  if(Array.isArray(d.books))DB.books=d.books;
   if(typeof d.speechRate==='number'){
     DB.speechRate=Math.max(.5,Math.min(2,d.speechRate));
     spd=DB.speechRate;
@@ -607,7 +610,12 @@ var G={
   isRec:false,
   revShowDone:false,
   // Add-your-own-dialogue screen
-  showAdd:false
+  showAdd:false,
+  // Book words: PDF import
+  bookScreen:'list', // 'list' | 'read'
+  pdfBusy:false,currentBookId:null,
+  pdfActiveWord:null, // {sIdx, word}
+  revealedBookWords:{}
 };
 
 function sim(a,b){
@@ -759,26 +767,204 @@ function bookWordsH(isReview){
   h+='<div><div style="font-size:20px;font-weight:700">'+(isReview?'책 단어 복습':'책 단어 학습')+'</div>';
   h+='<div style="font-size:13px;color:var(--text2);margin-top:3px">'+(isReview?'오늘 복습할 단어를 확인하세요':'PDF와 책에서 저장한 단어를 모아 학습합니다')+'</div></div>';
   h+='<span class="section-count">'+words.length+'개</span></div>';
+  if(!isReview){h+=pdfUploadInputH();h+=myBooksH();}
   if(words.length===0){
     var hasFuture=isReview&&all.length>0;
     h+='<div class="book-empty"><div class="be-ic">'+(hasFuture?'✅':'📚')+'</div>';
     h+='<div class="be-title">'+(hasFuture?'오늘 복습할 책 단어가 없어요':'저장된 책 단어가 없어요')+'</div>';
-    h+='<div class="be-sub">'+(hasFuture?'예정된 날짜가 되면 이곳에 자동으로 표시됩니다.':'다음 단계에서 PDF에서 체크한 단어가 이곳에 쌓이도록 연결합니다.<br>다이얼로그와 책 단어는 서로 섞이지 않고 별도로 관리됩니다.')+'</div></div>';
+    h+='<div class="be-sub">'+(hasFuture?'예정된 날짜가 되면 이곳에 자동으로 표시됩니다.':'PDF를 올리면 문장을 뽑아서 읽어드려요. 모르는 단어를 눌러 체크하면 여기에 저장됩니다.')+'</div>';
+    if(!isReview)h+='<button class="btn pr wr" style="margin-top:12px" onclick="triggerPdfUpload()">📄 PDF 올리기</button>';
+    h+='</div>';
     return h;
   }
-  words.forEach(function(w){
+  if(!isReview)h+='<button class="btn wr" style="margin-bottom:12px" onclick="triggerPdfUpload()">📄 PDF에서 단어 더 추가하기</button>';
+  words.forEach(function(w,i){
+    var wid=w.id||('bw'+i);
     var word=w.word||w.surface||w.lemma||'단어';
     var meaning=w.meaningKo||w.meaning||w.ko||'뜻 미등록';
+    var altMeaning=w.altMeaning||'';
     var exampleKo=w.exampleKo||w.sentenceKo||'';
     var exampleEn=w.exampleEn||w.sentenceEn||w.sourceSentence||'';
+    var revealed=!!G.revealedBookWords[wid]||!exampleKo;
     h+='<div class="card book-word-card">';
-    h+='<div class="book-word-head"><div style="flex:1"><div class="book-word-en">'+esc(word)+'</div><div class="book-word-ko">'+esc(meaning)+'</div></div>';
+    h+='<div class="book-word-head"><div style="flex:1"><div class="book-word-en">'+esc(word)+'</div><div class="book-word-ko">'+esc(meaning)+'</div>';
+    if(altMeaning)h+='<div style="font-size:12px;color:var(--text2);margin-top:2px">다른 뜻: '+esc(altMeaning)+'</div>';
+    h+='</div>';
     if(isReview)h+='<span class="ebb-badge d1">복습</span>';
     h+='</div>';
     if(exampleKo)h+='<div class="book-example-ko">'+esc(exampleKo)+'</div>';
-    if(exampleEn){h+='<div class="book-example-en">'+esc(exampleEn)+'</div>';h+=aBarH(exampleEn);}
+    if(exampleEn){
+      if(revealed){h+='<div class="book-example-en">'+esc(exampleEn)+'</div>';h+=aBarH(exampleEn);}
+      else h+='<button class="btn wr" onclick="toggleRevealWord(\''+wid+'\')">🔎 영어 문장 보기</button>';
+    }
     h+='</div>';
   });
+  return h;
+}
+function pdfUploadInputH(){
+  return '<input type="file" id="pdfFileInput" accept="application/pdf" style="display:none" onchange="handlePdfFile(this)">';
+}
+function triggerPdfUpload(){
+  var el=document.getElementById('pdfFileInput');
+  if(el)el.click();
+}
+function toggleRevealWord(wid){
+  G.revealedBookWords[wid]=!G.revealedBookWords[wid];
+  rend();
+}
+function myBooksH(){
+  var books=DB.books||[];
+  if(books.length===0)return '';
+  var h='<div style="font-size:13px;font-weight:600;color:var(--text2);margin:4px 0 8px">내 책</div>';
+  books.forEach(function(b){
+    var total=(b.sentences||[]).length;
+    var idx=typeof b.lastReadIdx==='number'?b.lastReadIdx:-1;
+    var progress=idx>=0?('읽은 위치 '+(idx+1)+' / '+total):('문장 '+total+'개');
+    h+='<div class="card" style="padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:10px">';
+    h+='<div style="min-width:0"><div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(b.title)+'</div>';
+    h+='<div style="font-size:11px;color:var(--text2);margin-top:2px">'+progress+'</div></div>';
+    h+='<div style="display:flex;gap:6px;flex-shrink:0"><button class="btn pr wr" onclick="openBook(\''+b.id+'\')">'+(idx>=0?'이어 읽기':'읽기')+'</button>';
+    h+='<button class="btn wr" onclick="deleteBook(\''+b.id+'\')">삭제</button></div></div>';
+  });
+  return h;
+}
+function openBook(id){
+  var b=(DB.books||[]).find(function(x){return x.id===id;});
+  if(!b)return;
+  stopLoop(false);
+  G.currentBookId=id;G.bookScreen='read';G.pdfActiveWord=null;
+  rend();
+  if(typeof b.lastReadIdx==='number'&&b.lastReadIdx>=0){
+    setTimeout(function(){
+      var el=document.getElementById('bsent-'+b.lastReadIdx);
+      if(el)el.scrollIntoView({behavior:'smooth',block:'center'});
+    },150);
+  }
+}
+function markBookProgress(bookId,idx){
+  var b=(DB.books||[]).find(function(x){return x.id===bookId;});
+  if(!b)return;
+  b.lastReadIdx=idx;
+  sched();
+}
+function playBookSentence(bookId,idx,text){
+  markBookProgress(bookId,idx);
+  sLoop(text);
+}
+function deleteBook(id){
+  if(!confirm('이 책을 삭제할까요? 저장한 단어 카드는 남아있습니다.'))return;
+  DB.books=(DB.books||[]).filter(function(x){return x.id!==id;});
+  sched();
+  rend();
+}
+async function handlePdfFile(input){
+  var file=input.files&&input.files[0];
+  if(!file)return;
+  G.pdfBusy=true;rend();
+  try{
+    if(window.pdfjsLib&&pdfjsLib.GlobalWorkerOptions)pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js';
+    var buf=await file.arrayBuffer();
+    var doc=await pdfjsLib.getDocument({data:buf}).promise;
+    var full='';
+    for(var p=1;p<=doc.numPages;p++){
+      var page=await doc.getPage(p);
+      var tc=await page.getTextContent();
+      full+=tc.items.map(function(it){return it.str;}).join(' ')+' ';
+    }
+    var raw=full.replace(/\s+/g,' ').trim();
+    var sentences=raw.split(/(?<=[.!?])\s+(?=[A-Z"'])/).map(function(s){return s.trim();}).filter(function(s){return s.length>3&&/[a-zA-Z]/.test(s);});
+    if(sentences.length===0){
+      alert('이 PDF에서 텍스트를 찾지 못했어요 (스캔 이미지 PDF일 수 있어요).');
+    }else{
+      var book={id:'bk'+Date.now()+Math.floor(Math.random()*1000),title:file.name.replace(/\.pdf$/i,''),sentences:sentences,savedAt:new Date().toISOString()};
+      DB.books=DB.books||[];
+      DB.books.push(book);
+      sched();
+      G.currentBookId=book.id;
+      G.bookScreen='read';
+    }
+  }catch(e){
+    alert('PDF를 읽는 중 문제가 발생했어요. 다른 PDF로 다시 시도해보세요.');
+  }
+  G.pdfBusy=false;
+  input.value='';
+  rend();
+}
+function closeBookRead(){
+  stopLoop(false);
+  G.bookScreen='list';G.currentBookId=null;G.pdfActiveWord=null;
+  rend();
+}
+function tapPdfWord(sIdx,word){
+  var clean=word.replace(/^[^a-zA-Z']+|[^a-zA-Z']+$/g,'');
+  if(!clean)return;
+  G.pdfActiveWord={sIdx:sIdx,word:clean};
+  rend();
+}
+function saveBookWordForm(sIdx){
+  var wordEl=document.getElementById('bwWord');
+  var meanEl=document.getElementById('bwMeaning');
+  var altEl=document.getElementById('bwAlt');
+  var koEl=document.getElementById('bwKo');
+  var enEl=document.getElementById('bwEn');
+  var word=(wordEl&&wordEl.value||'').trim();
+  if(!word){alert('단어를 입력해주세요.');return;}
+  DB.bookWords=DB.bookWords||[];
+  DB.bookWords.push({
+    id:'bw'+Date.now()+Math.floor(Math.random()*1000),
+    word:word,
+    meaningKo:(meanEl&&meanEl.value||'').trim(),
+    altMeaning:(altEl&&altEl.value||'').trim(),
+    exampleEn:(enEl&&enEl.value||'').trim(),
+    exampleKo:(koEl&&koEl.value||'').trim(),
+    savedAt:new Date().toISOString()
+  });
+  sched();
+  G.pdfActiveWord=null;
+  rend();
+}
+function bookReadH(){
+  var book=(DB.books||[]).find(function(x){return x.id===G.currentBookId;});
+  var h='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
+  h+='<button class="btn wr" onclick="closeBookRead()">← 내 책으로</button>';
+  h+='<span style="font-size:12px;color:var(--text2)">'+esc(book?book.title:'')+'</span></div>';
+  if(G.pdfBusy){h+='<div class="book-empty"><div class="be-ic">⏳</div><div class="be-title">PDF에서 텍스트를 뽑는 중...</div></div>';return h;}
+  if(!book||!book.sentences||book.sentences.length===0){h+='<div class="book-empty"><div class="be-ic">📄</div><div class="be-title">문장을 찾지 못했어요</div><div class="be-sub">다른 PDF로 다시 시도해보세요.</div></div>';return h;}
+  h+='<div class="be-sub" style="margin-bottom:10px">문장을 눌러 반복해서 들어보고, 모르는 단어를 눌러 체크하세요.</div>';
+  var sentences=book.sentences;
+  var lastIdx=typeof book.lastReadIdx==='number'?book.lastReadIdx:-1;
+  if(lastIdx>=0){
+    h+='<div class="card" style="padding:10px 14px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:10px">';
+    h+='<span style="font-size:12px;color:var(--text2)">📍 '+(lastIdx+1)+'번째 문장까지 읽었어요</span>';
+    h+='<button class="btn wr" onclick="document.getElementById(\'bsent-'+lastIdx+'\').scrollIntoView({behavior:\'smooth\',block:\'center\'})">이어 읽기로 이동</button></div>';
+  }
+  sentences.forEach(function(s,i){
+    var safe=s.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    var active=G.pl&&loopText===s;
+    var isLast=i===lastIdx;
+    h+='<div class="card" id="bsent-'+i+'" style="padding:12px 14px;margin-bottom:8px'+(isLast?';border-color:var(--acc)':'')+'">';
+    if(isLast)h+='<div style="font-size:11px;color:var(--acc);font-weight:600;margin-bottom:4px">📍 마지막으로 읽은 문장</div>';
+    h+='<div class="abrow" style="margin-bottom:8px"><button class="pbtn'+(active?' st':'')+'" onclick="'+(active?'stopLoop(true)':'playBookSentence(\''+book.id+'\','+i+',\''+safe+'\')')+'">'+(active?'<div class="wav"><span></span><span></span><span></span><span></span></div>':'▶')+'</button>';
+    h+='<span style="font-size:12px;color:var(--text2);flex:1">'+(active?G.rn+'회 반복 중 · 누르면 정지':'문장 듣기 · 누르면 정지할 때까지 무한 반복')+'</span></div>';
+    h+='<div style="font-size:15px;line-height:1.7">';
+    s.split(/\s+/).forEach(function(w){
+      h+='<span onclick="tapPdfWord('+i+',\''+w.replace(/'/g,"\\'")+'\')" style="cursor:pointer;padding:1px 2px;border-radius:4px" onmouseover="this.style.background=\'var(--bg3)\'" onmouseout="this.style.background=\'\'">'+esc(w)+'</span> ';
+    });
+    h+='</div>';
+    if(G.pdfActiveWord&&G.pdfActiveWord.sIdx===i){
+      h+='<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">';
+      h+='<div style="font-size:12px;color:var(--text2);margin-bottom:6px">단어 카드 만들기</div>';
+      h+='<input id="bwWord" value="'+esc(G.pdfActiveWord.word)+'" placeholder="단어" style="width:100%;margin-bottom:6px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text)">';
+      h+='<input id="bwMeaning" placeholder="뜻" style="width:100%;margin-bottom:6px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text)">';
+      h+='<input id="bwAlt" placeholder="다른 뜻 (선택)" style="width:100%;margin-bottom:6px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text)">';
+      h+='<textarea id="bwEn" placeholder="예문(영어)" style="width:100%;margin-bottom:6px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text)">'+esc(s)+'</textarea>';
+      h+='<textarea id="bwKo" placeholder="예문 번역(한글)" style="width:100%;margin-bottom:8px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text)"></textarea>';
+      h+='<div style="display:flex;gap:8px"><button class="btn pr wr" style="flex:1" onclick="saveBookWordForm('+i+')">저장</button><button class="btn wr" onclick="G.pdfActiveWord=null;rend()">취소</button></div>';
+      h+='</div>';
+    }
+    h+='</div>';
+  });
+
   return h;
 }
 function aBarH(t){
@@ -874,7 +1060,7 @@ function rT(){
 function rL(){
   var h=contentTabsH('learn');
   if(G.learnSection==='book'){
-    h+=bookWordsH(false);
+    h+=(G.bookScreen==='read'?bookReadH():bookWordsH(false));
     document.getElementById('slc').innerHTML=h;
     return;
   }
