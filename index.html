@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>영어 학습 👩‍🚀</title>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
 :root{--bg:#fff;--bg2:#f5f5f5;--bg3:#eee;--text:#111;--text2:#666;--text3:#999;--border:#e0e0e0;--acc:#000;--act:#fff;--g:#16a34a;--gbg:#f0fdf4;--gbr:#bbf7d0;--r:#dc2626;--rbg:#fef2f2;--rbr:#fecaca;--y:#d97706;--ybg:#fffbeb;--ybr:#fde68a;--b:#2563eb;--bbg:#eff6ff;--bbr:#bfdbfe;--rad:12px;--rads:8px;--st:env(safe-area-inset-top,0px);--sb:env(safe-area-inset-bottom,0px);}
 @media(prefers-color-scheme:dark){:root{--bg:#0a0a0a;--bg2:#1a1a1a;--bg3:#2a2a2a;--text:#f0f0f0;--text2:#aaa;--text3:#666;--border:#2a2a2a;--gbg:#052e16;--rbg:#450a0a;--ybg:#422006;--bbg:#172554;}}
@@ -862,7 +862,7 @@ async function handlePdfFile(input){
   if(!file)return;
   G.pdfBusy=true;rend();
   try{
-    if(window.pdfjsLib&&pdfjsLib.GlobalWorkerOptions)pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js';
+    if(window.pdfjsLib&&pdfjsLib.GlobalWorkerOptions)pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     var buf=await file.arrayBuffer();
     var doc=await pdfjsLib.getDocument({data:buf}).promise;
     var full='';
