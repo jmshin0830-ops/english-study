@@ -127,7 +127,6 @@ nav{position:fixed;bottom:0;left:0;right:0;background:var(--bg);border-top:1px s
 .book-word-en{font-size:19px;font-weight:700;line-height:1.25;}
 .book-word-ko{font-size:13px;color:var(--text2);margin-top:2px;}
 .book-example-ko{font-size:13px;color:var(--text2);line-height:1.55;margin-bottom:4px;}
-.book-example-en{font-size:15px;line-height:1.55;margin-bottom:8px;}
 </style>
 </head>
 <body>
@@ -614,8 +613,7 @@ var G={
   // Book words: PDF import
   bookScreen:'list', // 'list' | 'read'
   pdfBusy:false,currentBookId:null,
-  pdfActiveWord:null, // {sIdx, word}
-  revealedBookWords:{}
+  pdfActiveWord:null // {sIdx, word}
 };
 
 function sim(a,b){
@@ -779,13 +777,11 @@ function bookWordsH(isReview){
   }
   if(!isReview)h+='<button class="btn wr" style="margin-bottom:12px" onclick="triggerPdfUpload()">📄 PDF에서 단어 더 추가하기</button>';
   words.forEach(function(w,i){
-    var wid=w.id||('bw'+i);
     var word=w.word||w.surface||w.lemma||'단어';
     var meaning=w.meaningKo||w.meaning||w.ko||'뜻 미등록';
     var altMeaning=w.altMeaning||'';
     var exampleKo=w.exampleKo||w.sentenceKo||'';
     var exampleEn=w.exampleEn||w.sentenceEn||w.sourceSentence||'';
-    var revealed=!!G.revealedBookWords[wid]||!exampleKo;
     h+='<div class="card book-word-card">';
     h+='<div class="book-word-head"><div style="flex:1"><div class="book-word-en">'+esc(word)+'</div><div class="book-word-ko">'+esc(meaning)+'</div>';
     if(altMeaning)h+='<div style="font-size:12px;color:var(--text2);margin-top:2px">다른 뜻: '+esc(altMeaning)+'</div>';
@@ -793,10 +789,7 @@ function bookWordsH(isReview){
     if(isReview)h+='<span class="ebb-badge d1">복습</span>';
     h+='</div>';
     if(exampleKo)h+='<div class="book-example-ko">'+esc(exampleKo)+'</div>';
-    if(exampleEn){
-      if(revealed){h+='<div class="book-example-en">'+esc(exampleEn)+'</div>';h+=aBarH(exampleEn);}
-      else h+='<button class="btn wr" onclick="toggleRevealWord(\''+wid+'\')">🔎 영어 문장 보기</button>';
-    }
+    if(exampleEn)h+=aBarH(exampleEn);
     h+='</div>';
   });
   return h;
@@ -807,10 +800,6 @@ function pdfUploadInputH(){
 function triggerPdfUpload(){
   var el=document.getElementById('pdfFileInput');
   if(el)el.click();
-}
-function toggleRevealWord(wid){
-  G.revealedBookWords[wid]=!G.revealedBookWords[wid];
-  rend();
 }
 function myBooksH(){
   var books=DB.books||[];
