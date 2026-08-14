@@ -613,7 +613,8 @@ var G={
   // Book words: PDF import
   bookScreen:'list', // 'list' | 'read'
   pdfBusy:false,currentBookId:null,
-  pdfActiveWord:null // {sIdx, word}
+  pdfActiveWord:null, // {sIdx, word}
+  editingBookWordId:null
 };
 
 function sim(a,b){
@@ -782,7 +783,19 @@ function bookWordsH(isReview){
     var altMeaning=w.altMeaning||'';
     var exampleKo=w.exampleKo||w.sentenceKo||'';
     var exampleEn=w.exampleEn||w.sentenceEn||w.sourceSentence||'';
+    var editing=!isReview&&G.editingBookWordId===w.id;
     h+='<div class="card book-word-card">';
+    if(editing){
+      h+='<div style="font-size:12px;color:var(--text2);margin-bottom:6px">단어 카드 수정</div>';
+      h+='<input id="ebwWord" value="'+esc(word)+'" placeholder="단어" style="width:100%;margin-bottom:6px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text)">';
+      h+='<input id="ebwMeaning" value="'+esc(w.meaningKo||'')+'" placeholder="뜻" style="width:100%;margin-bottom:6px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text)">';
+      h+='<input id="ebwAlt" value="'+esc(altMeaning)+'" placeholder="다른 뜻 (선택)" style="width:100%;margin-bottom:6px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text)">';
+      h+='<textarea id="ebwEn" placeholder="예문(영어) · 재생 버튼이 읽어주는 내용" style="width:100%;margin-bottom:6px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text)">'+esc(exampleEn)+'</textarea>';
+      h+='<textarea id="ebwKo" placeholder="예문 번역(한글)" style="width:100%;margin-bottom:8px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text)">'+esc(exampleKo)+'</textarea>';
+      h+='<div style="display:flex;gap:8px"><button class="btn pr wr" style="flex:1" onclick="saveEditBookWord(\''+w.id+'\')">저장</button><button class="btn wr" onclick="cancelEditBookWord()">취소</button></div>';
+      h+='</div>';
+      return;
+    }
     h+='<div class="book-word-head"><div style="flex:1"><div class="book-word-en">'+esc(word)+'</div><div class="book-word-ko">'+esc(meaning)+'</div>';
     if(altMeaning)h+='<div style="font-size:12px;color:var(--text2);margin-top:2px">다른 뜻: '+esc(altMeaning)+'</div>';
     h+='</div>';
@@ -790,6 +803,12 @@ function bookWordsH(isReview){
     h+='</div>';
     if(exampleKo)h+='<div class="book-example-ko">'+esc(exampleKo)+'</div>';
     if(exampleEn)h+=aBarH(exampleEn);
+    if(!isReview){
+      h+='<div style="display:flex;gap:8px;margin-top:8px">';
+      h+='<button class="btn wr" style="flex:1" onclick="startEditBookWord(\''+w.id+'\')">✏️ 수정</button>';
+      h+='<button class="btn wr" style="flex:1" onclick="deleteBookWord(\''+w.id+'\')">삭제</button>';
+      h+='</div>';
+    }
     h+='</div>';
   });
   return h;
@@ -910,6 +929,39 @@ function saveBookWordForm(sIdx){
   });
   sched();
   G.pdfActiveWord=null;
+  rend();
+}
+function startEditBookWord(id){
+  G.editingBookWordId=id;
+  rend();
+}
+function cancelEditBookWord(){
+  G.editingBookWordId=null;
+  rend();
+}
+function saveEditBookWord(id){
+  var w=(DB.bookWords||[]).find(function(x){return x.id===id;});
+  if(!w)return;
+  var wordEl=document.getElementById('ebwWord');
+  var meanEl=document.getElementById('ebwMeaning');
+  var altEl=document.getElementById('ebwAlt');
+  var enEl=document.getElementById('ebwEn');
+  var koEl=document.getElementById('ebwKo');
+  var word=(wordEl&&wordEl.value||'').trim();
+  if(!word){alert('단어를 입력해주세요.');return;}
+  w.word=word;
+  w.meaningKo=(meanEl&&meanEl.value||'').trim();
+  w.altMeaning=(altEl&&altEl.value||'').trim();
+  w.exampleEn=(enEl&&enEl.value||'').trim();
+  w.exampleKo=(koEl&&koEl.value||'').trim();
+  sched();
+  G.editingBookWordId=null;
+  rend();
+}
+function deleteBookWord(id){
+  if(!confirm('이 단어 카드를 삭제할까요?'))return;
+  DB.bookWords=(DB.bookWords||[]).filter(function(x){return x.id!==id;});
+  sched();
   rend();
 }
 function bookReadH(){
