@@ -614,7 +614,8 @@ var G={
   bookScreen:'list', // 'list' | 'read'
   pdfBusy:false,currentBookId:null,
   pdfActiveWord:null, // {sIdx, word}
-  editingBookWordId:null
+  editingBookWordId:null,
+  revealedBookWordIds:{} // {wordId:true} 복습 중 번역/뜻을 공개한 카드
 };
 
 function sim(a,b){
@@ -738,11 +739,44 @@ function speedButtonsH(){
 function getBookWordsDue(){
   var now=Date.now();
   return (DB.bookWords||[]).filter(function(w){
-    var due=w&&(w.dueAt||w.nextReviewAt);
+    if(!w||w.mastered)return false;
+    var due=w.dueAt||w.nextReviewAt;
     if(!due)return true;
     var time=Date.parse(due);
     return isNaN(time)||time<=now;
   });
+}
+// 책 단어 카드를 탭해서 번역/뜻을 공개했는지 여부 {wordId:true}
+function revealBookWord(id){
+  G.revealedBookWordIds=G.revealedBookWordIds||{};
+  G.revealedBookWordIds[id]=true;
+  rend();
+}
+// 책 단어 1개를 복습 완료 처리 — 에빙하우스 주기(1일→3일→1주→1달)로 다음 복습일을 잡는다.
+// remembered=false면 1일 후로 리셋해서 더 자주 보게 한다.
+function markBookWordReviewed(id,remembered){
+  var w=(DB.bookWords||[]).find(function(x){return x.id===id;});
+  if(!w)return;
+  if(remembered){
+    var next=(typeof w.stage==='number'?w.stage:0)+1;
+    if(next<EBB_DAYS.length){
+      w.stage=next;
+      w.dueAt=addD(td(),EBB_DAYS[next]);
+      w.mastered=false;
+    }else{
+      w.stage=EBB_DAYS.length;
+      w.mastered=true;
+      w.dueAt=null;
+    }
+    DB.xp+=5;
+  }else{
+    w.stage=0;
+    w.dueAt=addD(td(),EBB_DAYS[0]);
+    w.mastered=false;
+  }
+  if(G.revealedBookWordIds)delete G.revealedBookWordIds[id];
+  sched();
+  rend();
 }
 function contentTabsH(kind){
   var current=kind==='learn'?G.learnSection:G.reviewSection;
@@ -796,19 +830,39 @@ function bookWordsH(isReview){
       h+='</div>';
       return;
     }
+    if(isReview){
+      var stageIdx=Math.max(0,Math.min((typeof w.stage==='number'?w.stage:0),EBB_LABELS.length-1));
+      var revealed=!!(G.revealedBookWordIds&&G.revealedBookWordIds[w.id]);
+      var sentence=exampleEn||word;
+      h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
+      h+='<span class="ebb-badge '+EBB_COLORS[stageIdx]+'">'+EBB_LABELS[stageIdx]+' 복습</span></div>';
+      h+='<div style="font-size:16px;line-height:1.6;font-weight:600;margin-bottom:6px">'+esc(sentence)+'</div>';
+      h+=aBarH(sentence);
+      if(!revealed){
+        h+='<button class="btn pr wr" style="width:100%;margin-top:10px" onclick="revealBookWord(\''+w.id+'\')">🔎 탭해서 번역·뜻 보기</button>';
+      }else{
+        h+='<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">';
+        if(exampleEn&&exampleKo)h+='<div class="book-example-ko" style="margin-bottom:6px">'+esc(exampleKo)+'</div>';
+        h+='<div class="book-word-en">'+esc(word)+'</div><div class="book-word-ko">'+esc(meaning)+'</div>';
+        if(altMeaning)h+='<div style="font-size:12px;color:var(--text2);margin-top:2px">다른 뜻: '+esc(altMeaning)+'</div>';
+        h+='</div>';
+        h+='<div style="display:flex;gap:8px;margin-top:10px">';
+        h+='<button class="btn wr" style="flex:1" onclick="markBookWordReviewed(\''+w.id+'\',false)">😥 몰랐어요</button>';
+        h+='<button class="btn pr wr" style="flex:1" onclick="markBookWordReviewed(\''+w.id+'\',true)">✅ 기억났어요</button>';
+        h+='</div>';
+      }
+      h+='</div>';
+      return;
+    }
     h+='<div class="book-word-head"><div style="flex:1"><div class="book-word-en">'+esc(word)+'</div><div class="book-word-ko">'+esc(meaning)+'</div>';
     if(altMeaning)h+='<div style="font-size:12px;color:var(--text2);margin-top:2px">다른 뜻: '+esc(altMeaning)+'</div>';
-    h+='</div>';
-    if(isReview)h+='<span class="ebb-badge d1">복습</span>';
-    h+='</div>';
+    h+='</div></div>';
     if(exampleKo)h+='<div class="book-example-ko">'+esc(exampleKo)+'</div>';
     if(exampleEn)h+=aBarH(exampleEn);
-    if(!isReview){
-      h+='<div style="display:flex;gap:8px;margin-top:8px">';
-      h+='<button class="btn wr" style="flex:1" onclick="startEditBookWord(\''+w.id+'\')">✏️ 수정</button>';
-      h+='<button class="btn wr" style="flex:1" onclick="deleteBookWord(\''+w.id+'\')">삭제</button>';
-      h+='</div>';
-    }
+    h+='<div style="display:flex;gap:8px;margin-top:8px">';
+    h+='<button class="btn wr" style="flex:1" onclick="startEditBookWord(\''+w.id+'\')">✏️ 수정</button>';
+    h+='<button class="btn wr" style="flex:1" onclick="deleteBookWord(\''+w.id+'\')">삭제</button>';
+    h+='</div>';
     h+='</div>';
   });
   return h;
@@ -925,7 +979,10 @@ function saveBookWordForm(sIdx){
     altMeaning:(altEl&&altEl.value||'').trim(),
     exampleEn:(enEl&&enEl.value||'').trim(),
     exampleKo:(koEl&&koEl.value||'').trim(),
-    savedAt:new Date().toISOString()
+    savedAt:new Date().toISOString(),
+    stage:0,
+    dueAt:addD(td(),EBB_DAYS[0]),
+    mastered:false
   });
   sched();
   G.pdfActiveWord=null;
@@ -1055,6 +1112,8 @@ function rend(){
 // ── TODAY ──
 function rT(){
   var due=getReviewsDue();
+  var bookDue=getBookWordsDue();
+  var totalDue=due.length+bookDue.length;
   var studiedCount=Object.keys(DB.studiedChapters).length;
   var xpPct=Math.min(100,DB.xp%100);
   var h='';
@@ -1065,18 +1124,27 @@ function rT(){
   h+='<div style="margin-bottom:14px"><div class="pbar"><div class="pfill" style="width:'+xpPct+'%"></div></div>';
   h+='<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2)"><span>진행 '+studiedCount+'/'+allChapters().length+'강</span><span>+'+(100-xpPct)+' XP 다음 레벨</span></div></div>';
 
-  // Review due
-  if(due.length>0){
-    h+='<div class="ra"><div style="font-size:14px;font-weight:700;color:var(--y);margin-bottom:6px">⏰ 에빙하우스 복습 알림 '+due.length+'개</div>';
+  // Review due (다이얼로그 + 책 단어를 합쳐서 보여줌)
+  if(totalDue>0){
+    h+='<div class="ra"><div style="font-size:14px;font-weight:700;color:var(--y);margin-bottom:6px">⏰ 에빙하우스 복습 알림 '+totalDue+'개</div>';
     h+='<div style="font-size:12px;color:var(--y);margin-bottom:10px">잊어버리기 전에 지금 복습하세요!</div>';
+    var shown=0;
     due.slice(0,3).forEach(function(item){
       var ch=getCh(item.chId);
+      shown++;
       h+='<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:0.5px solid var(--ybr)">';
       h+='<span class="ebb-badge '+EBB_COLORS[item.reviewIdx]+'">'+EBB_LABELS[item.reviewIdx]+'</span>';
-      h+='<span style="font-size:13px;flex:1">'+ch.title+'</span></div>';
+      h+='<span style="font-size:13px;flex:1">💬 '+esc(ch.title)+'</span></div>';
     });
-    if(due.length>3)h+='<div style="font-size:12px;color:var(--y);padding-top:6px">+'+( due.length-3)+'개 더</div>';
-    h+='<button class="btn pr wr" style="margin-top:10px" onclick="G.reviewSection=\'dialogue\';G.reviewItem=getReviewsDue()[0];G.revStep=1;G.revRevealed=false;G.revChecked=[];go(\'r\')">지금 복습하기 →</button>';
+    bookDue.slice(0,Math.max(0,3-shown)).forEach(function(w){
+      var stageIdx=Math.max(0,Math.min((typeof w.stage==='number'?w.stage:0),EBB_LABELS.length-1));
+      var sentence=w.exampleEn||w.word||'';
+      h+='<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:0.5px solid var(--ybr)">';
+      h+='<span class="ebb-badge '+EBB_COLORS[stageIdx]+'">'+EBB_LABELS[stageIdx]+'</span>';
+      h+='<span style="font-size:13px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📖 '+esc(sentence)+'</span></div>';
+    });
+    if(totalDue>3)h+='<div style="font-size:12px;color:var(--y);padding-top:6px">+'+(totalDue-3)+'개 더</div>';
+    h+='<button class="btn pr wr" style="margin-top:10px" onclick="'+(due.length>0?"G.reviewSection='dialogue';G.reviewItem=getReviewsDue()[0];G.revStep=1;G.revRevealed=false;G.revChecked=[];":"G.reviewSection='book';")+'go(\'r\')">지금 복습하기 →</button>';
     h+='</div>';
   } else {
     h+='<div class="card gr"><div style="font-size:22px;margin-bottom:6px">✅</div><div style="font-size:14px;font-weight:600;margin-bottom:4px">오늘 복습 완료!</div><div style="font-size:13px;color:var(--text2)">새 강의를 학습하거나 내일 다시 오세요.</div></div>';
