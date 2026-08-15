@@ -757,6 +757,7 @@ function revealBookWord(id){
 function markBookWordReviewed(id,remembered){
   var w=(DB.bookWords||[]).find(function(x){return x.id===id;});
   if(!w)return;
+  stopLoop(false); // 카드가 넘어가기 전에 재생 중이던 무한반복을 정지
   if(remembered){
     var next=(typeof w.stage==='number'?w.stage:0)+1;
     if(next<EBB_DAYS.length){
@@ -833,19 +834,23 @@ function bookWordsH(isReview){
     if(isReview){
       var stageIdx=Math.max(0,Math.min((typeof w.stage==='number'?w.stage:0),EBB_LABELS.length-1));
       var revealed=!!(G.revealedBookWordIds&&G.revealedBookWordIds[w.id]);
-      var sentence=exampleEn||word;
+      var sentenceEn=exampleEn||word;
       h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
       h+='<span class="ebb-badge '+EBB_COLORS[stageIdx]+'">'+EBB_LABELS[stageIdx]+' 복습</span></div>';
-      h+='<div style="font-size:16px;line-height:1.6;font-weight:600;margin-bottom:6px">'+esc(sentence)+'</div>';
-      h+=aBarH(sentence);
+      // 1) 한글 문장(뜻)을 먼저 보여준다
+      if(exampleKo)h+='<div style="font-size:16px;line-height:1.6;font-weight:600;margin-bottom:6px">'+esc(exampleKo)+'</div>';
+      h+='<div class="book-word-ko">'+esc(meaning)+'</div>';
+      if(altMeaning)h+='<div style="font-size:12px;color:var(--text2);margin-top:2px">다른 뜻: '+esc(altMeaning)+'</div>';
       if(!revealed){
-        h+='<button class="btn pr wr" style="width:100%;margin-top:10px" onclick="revealBookWord(\''+w.id+'\')">🔎 탭해서 번역·뜻 보기</button>';
+        // 2) 탭하기 전에는 영어 예문을 숨긴다
+        h+='<button class="btn pr wr" style="width:100%;margin-top:10px" onclick="revealBookWord(\''+w.id+'\')">🔎 탭해서 영어예문 보기</button>';
       }else{
+        // 3) 탭하면 영어 예문이 나오고, 속도별 무한반복 재생 가능
         h+='<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">';
-        if(exampleEn&&exampleKo)h+='<div class="book-example-ko" style="margin-bottom:6px">'+esc(exampleKo)+'</div>';
-        h+='<div class="book-word-en">'+esc(word)+'</div><div class="book-word-ko">'+esc(meaning)+'</div>';
-        if(altMeaning)h+='<div style="font-size:12px;color:var(--text2);margin-top:2px">다른 뜻: '+esc(altMeaning)+'</div>';
+        h+='<div class="book-word-en" style="margin-bottom:2px">'+esc(word)+'</div>';
+        h+='<div style="font-size:16px;line-height:1.6;font-weight:600;margin-bottom:8px">'+esc(sentenceEn)+'</div>';
         h+='</div>';
+        h+=aBarH(sentenceEn);
         h+='<div style="display:flex;gap:8px;margin-top:10px">';
         h+='<button class="btn wr" style="flex:1" onclick="markBookWordReviewed(\''+w.id+'\',false)">😥 몰랐어요</button>';
         h+='<button class="btn pr wr" style="flex:1" onclick="markBookWordReviewed(\''+w.id+'\',true)">✅ 기억났어요</button>';
