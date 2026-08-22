@@ -407,9 +407,9 @@ async function dLoad(){
   rdBar();rend();
 }
 var svT=null;
-function sched(){if(svT)clearTimeout(svT);svT=setTimeout(dSave,1500);}
+function sched(){saveLoc();if(svT)clearTimeout(svT);svT=setTimeout(dSave,1500);}
 async function dSave(){
-  if(!gTok){saveLoc();return;}
+  if(!gTok)return;
   dSt='sy';rdBar();
   try{
     var c=JSON.stringify(DB);
